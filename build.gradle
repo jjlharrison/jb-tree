@@ -13,8 +13,8 @@ apply plugin: 'eclipse'
 apply plugin: 'idea'
 
 // java
-sourceCompatibility = 1.6
-version = '0.0.3'
+sourceCompatibility = 1.8
+version = '0.0.4'
 
 jar {
     // include all dependency jars in this jars lib/ folder
@@ -43,8 +43,8 @@ sourceSets {
 
 repositories {
     mavenCentral()
-    mavenRepo urls: "http://guice-maven.googlecode.com/svn/trunk"
-    mavenRepo urls: "http://repository.codehaus.org"
+    maven { url "http://guice-maven.googlecode.com/svn/trunk" }
+    maven { url "http://repository.codehaus.org"}
 }
 
 dependencies {
