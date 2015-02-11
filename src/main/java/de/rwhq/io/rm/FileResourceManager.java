@@ -9,9 +9,7 @@
  */
 package de.rwhq.io.rm;
 
-import com.google.common.base.Objects;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import static com.google.common.base.Preconditions.checkState;
 
 import java.io.File;
 import java.io.IOException;
@@ -20,7 +18,10 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 
-import static com.google.common.base.Preconditions.checkState;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+
+import com.google.common.base.Objects;
 
 
 /**
@@ -28,264 +29,265 @@ import static com.google.common.base.Preconditions.checkState;
  * written to disk.
  */
 public class FileResourceManager implements ResourceManager {
-	private       RandomAccessFile handle;
-	private final File             file;
-	private       FileLock         fileLock;
-	private       FileChannel      ioChannel;
-	private ResourceHeader header;
-	private       boolean          doLock;
+    private       RandomAccessFile handle;
+    private final File             file;
+    private       FileLock         fileLock;
+    private       FileChannel      ioChannel;
+    private ResourceHeader header;
+    private       boolean          doLock;
 
-	private static Log LOG = LogFactory.getLog(FileResourceManager.class);
+    private static Log LOG = LogFactory.getLog(FileResourceManager.class);
 
-	FileResourceManager(final ResourceManagerBuilder builder) {
-		this.file = builder.getFile();
-		this.doLock = builder.useLock();
-		this.header = new ResourceHeader(this, builder.getPageSize());
-	}
+    FileResourceManager(final ResourceManagerBuilder builder) {
+        this.file = builder.getFile();
+        this.doLock = builder.useLock();
+        this.header = new ResourceHeader(this, builder.getPageSize());
+    }
 
-	/* (non-Javadoc)
-		 * @see ResourceManager#open()
-		 */
-	@Override
-	public void open() throws IOException {
-		if (isOpen())
-			throw new IllegalStateException("Resource already open");
+    /* (non-Javadoc)
+         * @see ResourceManager#open()
+         */
+    @Override
+    public void open() throws IOException {
+        if (isOpen())
+            throw new IllegalStateException("Resource already open");
 
-		// if the file does not exist already
-		if (!getFile().exists()) {
-			getFile().createNewFile();
-		}
+        // if the file does not exist already
+        if (!getFile().exists()) {
+            getFile().createNewFile();
+        }
 
-		initIOChannel(getFile());
+        initIOChannel(getFile());
 
-		if(header.isValid())
-			header = new ResourceHeader(this, header.getPageSize());
+        if(header.isValid())
+            header = new ResourceHeader(this, header.getPageSize());
 
-		if (handle.length() == 0) {
-			header.initialize();
-		} else {
-			// load header if file existed
-			header.load();
-		}
-	}
+        if (handle.length() == 0) {
+            header.initialize();
+        } else {
+            // load header if file existed
+            header.load();
+        }
+    }
 
-	@Override
-	public void writePage(final RawPage page) {
-		if (LOG.isDebugEnabled())
-			LOG.debug("writing page to disk: " + page.id());
-		
-		ensureOpen();
-		ensurePageExists(page.id());
+    @Override
+    public void writePage(final RawPage page) {
+        if (LOG.isDebugEnabled())
+            LOG.debug("writing page to disk: " + page.id());
 
-		final ByteBuffer buffer = page.bufferForReading(0);
+        ensureOpen();
+        ensurePageExists(page.id());
 
-		try {
-			final long offset = header.getPageOffset(page.id());
-			ioChannel.write(buffer, offset);
-		} catch (IOException e) {
-			throw new RuntimeException(e);
-		}
-	}
+        final ByteBuffer buffer = page.bufferForReading(0);
 
-	/* (non-Javadoc)
-	 * @see com.rwhq.io.rm.PageManager#getPage(long)
-	 */
-	@Override
-	public RawPage getPage(final int pageId) {
+        try {
+            final long offset = header.getPageOffset(page.id());
+            ioChannel.write(buffer, offset);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
 
-		ensureOpen();
-		ensurePageExists(pageId);
+    /* (non-Javadoc)
+     * @see com.rwhq.io.rm.PageManager#getPage(long)
+     */
+    @Override
+    public RawPage getPage(final int pageId) {
 
-		final RawPage result;
+        ensureOpen();
+        ensurePageExists(pageId);
 
-		final ByteBuffer buf = ByteBuffer.allocate(header.getPageSize());
+        final RawPage result;
 
-		try {
-			ioChannel.read(buf, header.getPageOffset(pageId));
-		} catch (IOException e) {
-			e.printStackTrace();
-			System.exit(1);
-		}
+        final ByteBuffer buf = ByteBuffer.allocate(header.getPageSize());
 
-		result = new RawPage(buf, pageId, this);
-		return result;
-	}
+        try {
+            ioChannel.read(buf, header.getPageOffset(pageId));
+        } catch (IOException e) {
+            e.printStackTrace();
+            System.exit(1);
+        }
 
-	/**
-	 * @param pageId
-	 * @throws PageNotFoundException
-	 */
-	private void ensurePageExists(final int pageId) {
-		if (!header.contains(pageId))
-			throw new PageNotFoundException(this, pageId);
-	}
+        result = new RawPage(buf, pageId, this);
+        return result;
+    }
 
-	/* (non-Javadoc)
-	 * @see ResourceManager#close()
-	 */
-	@Override
-	public void close() throws IOException {
-		try {
-			if (fileLock != null && fileLock.isValid()) {
-				fileLock.release();
-				fileLock = null;
-			}
+    /**
+     * @param pageId
+     * @throws PageNotFoundException
+     */
+    private void ensurePageExists(final int pageId) {
+        if (!header.contains(pageId))
+            throw new PageNotFoundException(this, pageId);
+    }
 
-			if (ioChannel != null) {
-				ioChannel.close();
-				ioChannel = null;
-			}
+    /* (non-Javadoc)
+     * @see ResourceManager#close()
+     */
+    @Override
+    public void close() throws IOException {
+        try {
+            if (fileLock != null && fileLock.isValid()) {
+                fileLock.release();
+                fileLock = null;
+            }
 
-			if (handle != null) {
-				handle.close();
-				handle = null;
-			}
-		} catch (Exception ignored) {
-		}
-	}
+            if (ioChannel != null) {
+                ioChannel.close();
+                ioChannel = null;
+            }
 
-	/* (non-Javadoc)
-	 * @see ResourceManager#getPageSize()
-	 */
-	@Override
-	public Integer getPageSize() {
-		return header.getPageSize();
-	}
+            if (handle != null) {
+                handle.close();
+                handle = null;
+            }
+        } catch (Exception ignored) {
+        }
+    }
 
-	/**
-	 * Generic private initializer that takes the random access file and initializes the I/O channel and locks it for
-	 * exclusive use by this instance.
-	 * <p/>
-	 * from minidb
-	 *
-	 * @param file
-	 * 		The random access file representing the index.
-	 * @throws IOException
-	 * 		Thrown, when the I/O channel could not be opened.
-	 */
-	private void initIOChannel(final File file)
-			throws IOException {
-		handle = new RandomAccessFile(file, "rw");
+    /* (non-Javadoc)
+     * @see ResourceManager#getPageSize()
+     */
+    @Override
+    public Integer getPageSize() {
+        return header.getPageSize();
+    }
 
-		// Open the channel. If anything fails, make sure we close it again
-		for (int i = 1; i <= 5; i++) {
-			try {
-				ioChannel = handle.getChannel();
-				if (doLock) {
-					LOG.debug("trying to aquire lock ...");
-					ioChannel.lock();
-					LOG.debug("lock aquired");
-					break;
-				}
-			} catch (Throwable t) {
-				LOG.warn("File " + file.getAbsolutePath() + " could not be locked in attempt " + i + ".");
+    /**
+     * Generic private initializer that takes the random access file and initializes the I/O channel and locks it for
+     * exclusive use by this instance.
+     * <p/>
+     * from minidb
+     *
+     * @param file
+     * 		The random access file representing the index.
+     * @throws IOException
+     * 		Thrown, when the I/O channel could not be opened.
+     */
+    private void initIOChannel(final File file)
+            throws IOException {
+        handle = new RandomAccessFile(file, "rw");
 
-				try {
-					Thread.sleep(200);
-				} catch (InterruptedException ignored) {
-				}
+        // Open the channel. If anything fails, make sure we close it again
+        final String absolutePath = file.getAbsolutePath();
+        for (int i = 1; i <= 5; i++) {
+            try {
+                ioChannel = handle.getChannel();
+                if (doLock) {
+                    LOG.debug(String.format("Trying to acquire lock for %s...", absolutePath));
+                    ioChannel.lock();
+                    LOG.debug(String.format("Lock acquired for %s.", absolutePath));
+                    break;
+                }
+            } catch (Throwable t) {
+                LOG.warn(String.format("File %s could not be locked in attempt %d.", absolutePath, i));
 
-				// propagate the exception
-				if (i >= 5) {
-					close();
-					throw new IOException("An error occured while opening the index: ", t);
-				}
-			}
-		}
-	}
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException ignored) {
+                }
 
-	@Override
-	public boolean isOpen() {
-		return !(ioChannel == null || !ioChannel.isOpen());
-	}
+                // propagate the exception
+                if (i >= 5) {
+                    close();
+                    throw new IOException("An error occurred while opening the index: ", t);
+                }
+            }
+        }
+    }
 
-	/*
-		 * (non-Javadoc)
-		 * @see java.lang.Object#toString()
-		 */
-	@Override
-	public String toString() {
-		Objects.ToStringHelper helper = Objects.toStringHelper(this)
-				.add("file", getFile().getAbsolutePath())
-				.add("isOpen", isOpen())
-				.add("pageSize", getPageSize());
+    @Override
+    public boolean isOpen() {
+        return !(ioChannel == null || !ioChannel.isOpen());
+    }
 
-		if (isOpen())
-			helper.add("numberOfPages", numberOfPages());
+    /*
+         * (non-Javadoc)
+         * @see java.lang.Object#toString()
+         */
+    @Override
+    public String toString() {
+        Objects.ToStringHelper helper = Objects.toStringHelper(this)
+                .add("file", getFile().getAbsolutePath())
+                .add("isOpen", isOpen())
+                .add("pageSize", getPageSize());
 
-		return helper.toString();
-	}
+        if (isOpen())
+            helper.add("numberOfPages", numberOfPages());
 
-	private void ensureOpen() {
-		if (!isOpen())
-			throw new IllegalStateException("Resource is not open: " + toString());
+        return helper.toString();
+    }
 
-		checkState(file.exists(), "File (%s) has been deleted externally.", getFile().getAbsolutePath());
-	}
+    private void ensureOpen() {
+        if (!isOpen())
+            throw new IllegalStateException("Resource is not open: " + toString());
 
-	/* (non-Javadoc)
-	 * @see ResourceManager#numberOfPages()
-	 */
-	@Override
-	public int numberOfPages() {
-		ensureOpen();
-		return header.getNumberOfPages();
-	}
+        checkState(file.exists(), "File (%s) has been deleted externally.", getFile().getAbsolutePath());
+    }
 
-	@Override public void clear() {
-		ensureOpen();
-		header = new ResourceHeader(this, header.getPageSize());
+    /* (non-Javadoc)
+     * @see ResourceManager#numberOfPages()
+     */
+    @Override
+    public int numberOfPages() {
+        ensureOpen();
+        return header.getNumberOfPages();
+    }
 
-		try {
-			ioChannel.truncate(0);
-		} catch (IOException e) {
-			throw new RuntimeException(e);
-		}
+    @Override public void clear() {
+        ensureOpen();
+        header = new ResourceHeader(this, header.getPageSize());
 
-		header.initialize();
-	}
+        try {
+            ioChannel.truncate(0);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
 
-	/* (non-Javadoc)
-	 * @see ResourceManager#createPage()
-	 */
-	@Override
-	public RawPage createPage() {
-		ensureOpen();
+        header.initialize();
+    }
 
-		final ByteBuffer buf = ByteBuffer.allocate(header.getPageSize());
-		final RawPage result = new RawPage(buf, header.generateId(), this);
+    /* (non-Javadoc)
+     * @see ResourceManager#createPage()
+     */
+    @Override
+    public RawPage createPage() {
+        ensureOpen();
 
-		return result;
-	}
+        final ByteBuffer buf = ByteBuffer.allocate(header.getPageSize());
+        final RawPage result = new RawPage(buf, header.generateId(), this);
 
-	/* (non-Javadoc)
-	 * @see ResourceManager#removePage(long)
-	 */
-	@Override
-	public void removePage(final int pageId) {
-		header.removePage(pageId);
-	}
+        return result;
+    }
 
-	@Override
-	protected void finalize() throws Throwable {
-		try {
-			close();
-		} catch (Exception e) {
-			super.finalize();
-		}
-	}
+    /* (non-Javadoc)
+     * @see ResourceManager#removePage(long)
+     */
+    @Override
+    public void removePage(final int pageId) {
+        header.removePage(pageId);
+    }
 
-	/* (non-Javadoc)
-	 * @see com.rwhq.io.rm.PageManager#hasPage(long)
-	 */
-	@Override
-	public boolean hasPage(final int id) {
-		ensureOpen();
-		return header.contains(id);
-	}
+    @Override
+    protected void finalize() throws Throwable {
+        try {
+            close();
+        } catch (Exception e) {
+            super.finalize();
+        }
+    }
 
-	/** @return the file */
-	public File getFile() {
-		return file;
-	}
+    /* (non-Javadoc)
+     * @see com.rwhq.io.rm.PageManager#hasPage(long)
+     */
+    @Override
+    public boolean hasPage(final int id) {
+        ensureOpen();
+        return header.contains(id);
+    }
+
+    /** @return the file */
+    public File getFile() {
+        return file;
+    }
 }
