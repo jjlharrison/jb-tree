@@ -59,3 +59,9 @@ get started by cloning the repository:
 
 You can find the Javadoc [here](http://rweng.github.com/jb-tree/doc/) -
 If you click on Network, you can see a branch called gh-pages on which you can see the commit the Javadocs are about (not always completely up-to-date).
+
+# Licence
+
+This project contains source code from [rweng/jb-tree](https://github.com/rweng/jb-tree) which is released under the [Creative Commons Attribution 4.0 International Public License](https://creativecommons.org/licenses/by/4.0/).
+
+This project is also released under released under the [Creative Commons Attribution 4.0 International Public License](https://creativecommons.org/licenses/by/4.0/).
